@@ -57,14 +57,23 @@ jobs:
           else ACCEL="-cpu max"; echo "pas de KVM : émulation TCG"; fi
 
           : > serial.log
+          : > qemu.log
+          # La sortie de QEMU lui-meme doit etre capturee : sans elle, un refus
+          # de demarrage est indiscernable d'un noyau qui ne dit rien.
           sudo qemu-system-x86_64 \
             -machine q35 -m 3072 -smp 4 $ACCEL \
             -drive if=pflash,format=raw,readonly=on,file="$CODE" \
             -drive if=pflash,format=raw,file=vars.fd \
             -drive file=disk.img,format=raw,if=virtio \
-            -net none -display none -monitor none \
-            -serial file:serial.log &
+            -nic none -display none -no-reboot \
+            -serial file:serial.log > qemu.log 2>&1 &
           QPID=$!
+          sleep 5
+          if ! kill -0 $QPID 2>/dev/null; then
+            echo "QEMU n'a pas demarre. Sa sortie :"
+            cat qemu.log
+            exit 1
+          fi
 
           # On guette soit l'invite de connexion (succès), soit les signatures
           # d'échec connues de l'initramfs.
@@ -78,6 +87,8 @@ jobs:
           sudo kill $QPID 2>/dev/null || true
           sleep 2
 
+          echo "=============== SORTIE QEMU ==============="
+          cat qemu.log || true
           echo "=============== CONSOLE SERIE ==============="
           cat serial.log || true
           echo "============================================="
@@ -91,4 +102,5 @@ jobs:
           name: spike-logs
           path: |
             /mnt/spike/serial.log
+            /mnt/spike/qemu.log
           if-no-files-found: ignore
