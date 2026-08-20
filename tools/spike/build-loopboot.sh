@@ -252,16 +252,37 @@ mkdir -p "$MNT_ESP/EFI/BOOT"
 
 # grub embarque sa config : il ouvre root.disk depuis la NTFS via `loopback`,
 # puis charge noyau et initrd DEPUIS L'INTERIEUR de l'image ext4.
+# Config INSTRUMENTEE : au run precedent grub tombait sur son shell sans dire
+# pourquoi. On sort tout sur la console serie et on trace chaque maillon.
 cat > "$WORK/grub-embed.cfg" << EOF
+serial --unit=0 --speed=115200
+terminal_input serial console
+terminal_output serial console
+echo "[wubildr] demarrage de la config embarquee"
 insmod part_gpt
 insmod ntfs
 insmod ext2
 insmod loopback
+echo "[wubildr] peripheriques vus par grub :"
+ls
+echo "[wubildr] recherche de l'UUID $NTFS_UUID ..."
 search --no-floppy --fs-uuid --set=hostdev $NTFS_UUID
+echo "[wubildr] hostdev = [\$hostdev]"
+if [ -z "\$hostdev" ]; then
+	echo "[wubildr] search infructueux -> repli sur (hd0,gpt2)"
+	set hostdev=hd0,gpt2
+fi
+echo "[wubildr] contenu de (\$hostdev)/ :"
+ls (\$hostdev)/
+echo "[wubildr] ouverture de root.disk en loopback ..."
 loopback lo (\$hostdev)/$INSTALL_DIR/disks/root.disk
+echo "[wubildr] contenu de (lo)/boot :"
+ls (lo)/boot/
 set root=(lo)
 set prefix=(lo)/boot/grub
+echo "[wubildr] lecture de /boot/grub/grub.cfg ..."
 configfile /boot/grub/grub.cfg
+echo "[wubildr] configfile a rendu la main sans demarrer"
 EOF
 
 grub-mkimage -O x86_64-efi -p "(lo)/boot/grub" -o "$MNT_ESP/EFI/BOOT/BOOTX64.EFI" \
