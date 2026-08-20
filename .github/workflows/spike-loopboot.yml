@@ -29,7 +29,7 @@ jobs:
           df -h / /mnt
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
-            squashfs-tools ntfs-3g gdisk dosfstools e2fsprogs \
+            squashfs-tools ntfs-3g gdisk dosfstools e2fsprogs rsync attr acl \
             qemu-system-x86 ovmf grub-efi-amd64-bin grub-common curl
           sudo mkdir -p /mnt/spike
           sudo chown $USER /mnt/spike

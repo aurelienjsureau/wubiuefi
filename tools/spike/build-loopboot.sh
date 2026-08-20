@@ -45,8 +45,9 @@ fail() { echo "!!! ECHEC : $*" >&2; exit 1; }
 cleanup() {
 	set +e
 	for m in "$MNT_ROOT/dev/pts" "$MNT_ROOT/dev" "$MNT_ROOT/proc" "$MNT_ROOT/sys" \
+	         "$WORK/mnt/merged" "$WORK"/mnt/layers/* \
 	         "$MNT_ROOT" "$MNT_ESP" "$MNT_HOST" "$MNT_ISO"; do
-		mountpoint -q "$m" && umount -l "$m"
+		mountpoint -q "$m" 2>/dev/null && umount -l "$m"
 	done
 	[ -n "${LOOPDEV:-}" ] && losetup -d "$LOOPDEV" 2>/dev/null
 	set -e
@@ -111,11 +112,32 @@ truncate -s "$ROOTDISK_SIZE" "$ROOTDISK"
 mkfs.ext4 -F -q -L wubi-root "$ROOTDISK"
 mount -o loop "$ROOTDISK" "$MNT_ROOT" || fail "loop-mount de root.disk impossible"
 
-say "4. Déballage des couches squashfs dans root.disk"
+say "4. Empilement des couches squashfs dans root.disk"
+# Les couches ne s'extraient PAS l'une par-dessus l'autre : unsquashfs échoue
+# sur les liens durs déjà présents ("failed to create hardlink, File exists").
+# On les superpose donc en overlay, comme le fait casper au démarrage, puis on
+# recopie la vue fusionnée. -H préserve les liens durs, -A/-X les ACL et
+# attributs étendus (indispensables : le système cible en dépend).
+mkdir -p "$WORK/mnt/layers"
+LOWER=""
+i=0
 for layer in "${LAYERS[@]}"; do
-	echo "--- $layer"
-	unsquashfs -f -no-progress -d "$MNT_ROOT" "$MNT_ISO/casper/$layer" >/dev/null
+	i=$((i + 1))
+	LDIR="$WORK/mnt/layers/$i"
+	mkdir -p "$LDIR"
+	mount -t squashfs -o ro,loop "$MNT_ISO/casper/$layer" "$LDIR" \
+		|| fail "montage de $layer impossible"
+	echo "--- couche $i : $layer"
+	# overlayfs : la plus à gauche l'emporte, donc on empile à l'envers
+	LOWER="$LDIR${LOWER:+:$LOWER}"
 done
+mkdir -p "$WORK/mnt/merged"
+mount -t overlay overlay -o "lowerdir=$LOWER" "$WORK/mnt/merged" \
+	|| fail "overlay impossible (lowerdir=$LOWER)"
+echo "vue fusionnée montée, recopie vers root.disk ..."
+rsync -aHAXx --numeric-ids "$WORK/mnt/merged/" "$MNT_ROOT/"
+umount "$WORK/mnt/merged"
+for d in "$WORK"/mnt/layers/*; do mountpoint -q "$d" && umount "$d"; done
 df -h "$MNT_ROOT" | tail -1
 
 # ------------------------------------------------------------------ 5. chroot
