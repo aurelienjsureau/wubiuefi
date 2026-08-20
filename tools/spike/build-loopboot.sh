@@ -296,12 +296,14 @@ grub-mkimage -O x86_64-efi -p "(lo)/boot/grub" -o "$MNT_ESP/EFI/BOOT/BOOTX64.EFI
 # loop-monter ce fichier comme racine.
 mount -o loop "$ROOTDISK" "$MNT_ROOT"
 mkdir -p "$MNT_ROOT/boot/grub"
+# PAS de re-initialisation du port serie ici : la config embarquee l'a deja
+# configure, et le refaire au milieu de la session coupe la sortie -- ce qui
+# expliquerait le silence total observe apres "lecture de grub.cfg".
 cat > "$MNT_ROOT/boot/grub/grub.cfg" << EOF
-set timeout=2
-serial --unit=0 --speed=115200
-terminal_input serial console
-terminal_output serial console
+set timeout=1
+echo "[grub.cfg] menu charge, demarrage dans 1s"
 menuentry "Ubuntu (Wubi loop)" {
+	echo "[grub.cfg] chargement du noyau ..."
 	insmod part_gpt
 	insmod ntfs
 	insmod ext2
@@ -310,7 +312,9 @@ menuentry "Ubuntu (Wubi loop)" {
 	loopback lo (\$hostdev)/$INSTALL_DIR/disks/root.disk
 	set root=(lo)
 	linux /boot/$KERNEL root=UUID=$NTFS_UUID rootfstype=ntfs3 loop=/$INSTALL_DIR/disks/root.disk loopfstype=ext4 ro console=ttyS0,115200 console=tty0 systemd.show_status=1
+	echo "[grub.cfg] chargement de l'initrd (96 Mo, patience en emulation) ..."
 	initrd /boot/$INITRD
+	echo "[grub.cfg] boot !"
 }
 EOF
 cat "$MNT_ROOT/boot/grub/grub.cfg"

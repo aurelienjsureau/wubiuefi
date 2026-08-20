@@ -20,7 +20,7 @@ on:
 jobs:
   spike:
     runs-on: ubuntu-24.04
-    timeout-minutes: 120
+    timeout-minutes: 200
     steps:
       - uses: actions/checkout@v4
 
@@ -123,7 +123,9 @@ jobs:
           # On guette soit l'invite de connexion (succès), soit les signatures
           # d'échec connues de l'initramfs.
           VERDICT="timeout"
-          for i in $(seq 1 210); do
+          # Fenetre elargie a 70 min : grub doit lire 113 Mo a travers
+          # NTFS -> loopback -> ext4 en emulation TCG, c'est lent par nature.
+          for i in $(seq 1 420); do
             if grep -qE "spike login:|Reached target Multi-User|Startup finished in" serial.log 2>/dev/null; then VERDICT="ok"; break; fi
             if grep -qE "Kernel panic|Dropping to a shell|ALERT!|does not exist|Entering emergency mode|Can.t find ext4|dracut-initqueue" serial.log 2>/dev/null; then VERDICT="echec"; break; fi
             # Grub qui rend la main a son shell = echec, inutile d'attendre 35 min
