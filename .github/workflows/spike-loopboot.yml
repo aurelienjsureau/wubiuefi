@@ -42,7 +42,48 @@ jobs:
           chmod +x tools/spike/build-loopboot.sh
           sudo -E tools/spike/build-loopboot.sh
 
-      - name: Démarrage réel sous QEMU (UEFI)
+      # ETAGE 1 : la vraie question du spike. On court-circuite firmware et
+      # bootloader en donnant le noyau et l'initrd directement a QEMU. Si ca
+      # demarre, le mecanisme Wubi (loop= sur une racine posee en NTFS) tient
+      # toujours en 26.04, independamment de toute question UEFI.
+      - name: "Étage 1 — démarrage direct du noyau (le pilier)"
+        run: |
+          cd /mnt/spike
+          . ./spike.env
+          echo "racine hote : UUID=$NTFS_UUID   fichier : /$INSTALL_DIR/disks/root.disk"
+          ACCEL="-cpu max"; [ -w /dev/kvm ] && ACCEL="-enable-kvm -cpu host"
+          : > direct-serial.log ; : > direct-qemu.log
+          sudo qemu-system-x86_64 \
+            -machine q35 -m 3072 -smp 4 $ACCEL \
+            -kernel boot-direct/vmlinuz -initrd boot-direct/initrd.img \
+            -append "root=UUID=$NTFS_UUID loop=/$INSTALL_DIR/disks/root.disk rootfstype=ext4 ro console=ttyS0,115200" \
+            -drive file=disk.img,format=raw,if=virtio \
+            -nic none -display none -no-reboot \
+            -serial file:direct-serial.log > direct-qemu.log 2>&1 &
+          QPID=$!
+          sleep 5
+          kill -0 $QPID 2>/dev/null || { echo "QEMU n'a pas demarre :"; cat direct-qemu.log; exit 1; }
+
+          VERDICT="timeout"
+          for i in $(seq 1 200); do
+            grep -qE "login:|Welcome to Ubuntu|Reached target" direct-serial.log 2>/dev/null && { VERDICT="ok"; break; }
+            grep -qE "Kernel panic|Dropping to a shell|ALERT!|unable to mount root" direct-serial.log 2>/dev/null && { VERDICT="echec"; break; }
+            kill -0 $QPID 2>/dev/null || { VERDICT="qemu-mort"; break; }
+            sleep 10
+          done
+          sudo kill $QPID 2>/dev/null || true ; sleep 2
+          echo "=============== SORTIE QEMU ==============="
+          cat direct-qemu.log || true
+          echo "=========== CONSOLE SERIE (NOYAU) ========="
+          tail -120 direct-serial.log || true
+          echo "==========================================="
+          echo "VERDICT PILIER : $VERDICT"
+          test "$VERDICT" = "ok"
+
+      # ETAGE 2 : la chaine complete (OVMF -> grub -> loopback -> noyau).
+      # Informatif : un echec ici n'invalide pas le pilier valide a l'etage 1.
+      - name: "Étage 2 — démarrage UEFI complet (OVMF + grub)"
+        continue-on-error: true
         run: |
           cd /mnt/spike
           # OVMF : firmware UEFI. Les variables doivent être inscriptibles.
@@ -66,6 +107,7 @@ jobs:
             -drive if=pflash,format=raw,file=vars.fd \
             -drive file=disk.img,format=raw,if=virtio \
             -nic none -display none -no-reboot \
+            -debugcon file:ovmf.log -global isa-debugcon.iobase=0x402 \
             -serial file:serial.log > qemu.log 2>&1 &
           QPID=$!
           sleep 5
@@ -103,4 +145,7 @@ jobs:
           path: |
             /mnt/spike/serial.log
             /mnt/spike/qemu.log
+            /mnt/spike/ovmf.log
+            /mnt/spike/direct-serial.log
+            /mnt/spike/direct-qemu.log
           if-no-files-found: ignore

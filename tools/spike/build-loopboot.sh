@@ -200,6 +200,15 @@ INITRD=$(cd "$MNT_ROOT/boot" && ls initrd.img-* | sort -V | tail -1)
 echo "noyau  : $KERNEL"
 echo "initrd : $INITRD"
 
+# Copie hors de l'image pour le test de demarrage DIRECT (-kernel/-initrd) :
+# il court-circuite firmware et bootloader, et ne teste donc qu'une chose,
+# la vraie question du spike : l'initramfs sait-il encore monter la racine
+# depuis un fichier pose sur NTFS via loop= ?
+mkdir -p "$WORK/boot-direct"
+cp "$MNT_ROOT/boot/$KERNEL" "$WORK/boot-direct/vmlinuz"
+cp "$MNT_ROOT/boot/$INITRD" "$WORK/boot-direct/initrd.img"
+echo "noyau et initrd extraits dans $WORK/boot-direct pour le test direct"
+
 sync
 umount "$MNT_ROOT/dev/pts" "$MNT_ROOT/dev" "$MNT_ROOT/proc" "$MNT_ROOT/sys"
 umount "$MNT_ROOT"
@@ -255,6 +264,14 @@ cat "$MNT_ROOT/boot/grub/grub.cfg"
 sync
 umount "$MNT_ROOT"
 umount "$MNT_ESP"
+
+# Valeurs reprises par les etapes de test du workflow
+cat > "$WORK/spike.env" << EOF
+NTFS_UUID=$NTFS_UUID
+INSTALL_DIR=$INSTALL_DIR
+KERNEL=$KERNEL
+INITRD=$INITRD
+EOF
 
 say "TERMINE"
 echo "image     : $IMG"
