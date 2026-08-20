@@ -231,8 +231,19 @@ cp "$MNT_ROOT/boot/$INITRD" "$WORK/boot-direct/initrd.img"
 echo "noyau et initrd extraits dans $WORK/boot-direct pour le test direct"
 
 sync
-umount "$MNT_ROOT/dev/pts" "$MNT_ROOT/dev" "$MNT_ROOT/proc" "$MNT_ROOT/sys"
-umount "$MNT_ROOT"
+# /sys peut rester occupe (sous-montages type cgroup) : demontage paresseux des
+# points lies, qui ne portent aucune donnee. La racine, elle, doit etre demontee
+# pour de vrai avant qu'on la remonte plus bas -- donc sync puis reessais.
+for m in "$MNT_ROOT/dev/pts" "$MNT_ROOT/dev" "$MNT_ROOT/proc" "$MNT_ROOT/sys"; do
+	umount -l "$m" 2>/dev/null || echo "  (demontage paresseux de $m)"
+done
+sync
+for try in 1 2 3 4 5; do
+	umount "$MNT_ROOT" 2>/dev/null && break
+	echo "  racine encore occupee, nouvel essai ($try)"
+	sleep 2
+done
+mountpoint -q "$MNT_ROOT" && fail "impossible de demonter root.disk proprement"
 
 # -------------------------------------------------------------- 6. bootloader
 say "6. Bootloader EFI (équivalent wubildr)"
