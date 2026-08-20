@@ -288,7 +288,7 @@ menuentry "Ubuntu (Wubi loop)" {
 	search --no-floppy --fs-uuid --set=hostdev $NTFS_UUID
 	loopback lo (\$hostdev)/$INSTALL_DIR/disks/root.disk
 	set root=(lo)
-	linux /boot/$KERNEL root=UUID=$NTFS_UUID loop=/$INSTALL_DIR/disks/root.disk rootfstype=ext4 ro console=ttyS0,115200 console=tty0 systemd.show_status=1
+	linux /boot/$KERNEL root=UUID=$NTFS_UUID rootfstype=ntfs3 loop=/$INSTALL_DIR/disks/root.disk loopfstype=ext4 ro console=ttyS0,115200 console=tty0 systemd.show_status=1
 	initrd /boot/$INITRD
 }
 EOF

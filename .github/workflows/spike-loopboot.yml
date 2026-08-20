@@ -56,7 +56,7 @@ jobs:
           sudo qemu-system-x86_64 \
             -machine q35 -m 3072 -smp 4 $ACCEL \
             -kernel boot-direct/vmlinuz -initrd boot-direct/initrd.img \
-            -append "root=UUID=$NTFS_UUID loop=/$INSTALL_DIR/disks/root.disk rootfstype=ext4 ro console=ttyS0,115200" \
+            -append "root=UUID=$NTFS_UUID rootfstype=ntfs3 loop=/$INSTALL_DIR/disks/root.disk loopfstype=ext4 ro console=ttyS0,115200" \
             -drive file=disk.img,format=raw,if=virtio \
             -nic none -display none -no-reboot \
             -serial file:direct-serial.log > direct-qemu.log 2>&1 &
