@@ -85,7 +85,10 @@ jobs:
 
       # ETAGE 2 : la chaine complete (OVMF -> grub -> loopback -> noyau).
       # Informatif : un echec ici n'invalide pas le pilier valide a l'etage 1.
-      - name: "Étage 2 — démarrage UEFI complet (OVMF + grub)"
+      # QEMU est lance en tache de fond puis surveille par tranches, chacune
+      # suivie d'un televersement : les artefacts sont recuperables RUN EN
+      # COURS, alors que l'archive des journaux n'existe qu'a la fin du job.
+      - name: "Étage 2 — lancement de QEMU (UEFI)"
         continue-on-error: true
         run: |
           cd /mnt/spike
@@ -100,11 +103,12 @@ jobs:
           if [ -w /dev/kvm ]; then ACCEL="-enable-kvm -cpu host"; echo "KVM disponible"
           else ACCEL="-cpu max"; echo "pas de KVM : émulation TCG"; fi
 
+          rm -f verdict
           : > serial.log
           : > qemu.log
           # La sortie de QEMU lui-meme doit etre capturee : sans elle, un refus
           # de demarrage est indiscernable d'un noyau qui ne dit rien.
-          sudo qemu-system-x86_64 \
+          sudo nohup qemu-system-x86_64 \
             -machine q35 -m 3072 -smp 4 $ACCEL \
             -drive if=pflash,format=raw,readonly=on,file="$CODE" \
             -drive if=pflash,format=raw,file=vars.fd \
@@ -112,37 +116,69 @@ jobs:
             -nic none -display none -no-reboot \
             -debugcon file:ovmf.log -global isa-debugcon.iobase=0x402 \
             -serial file:serial.log > qemu.log 2>&1 &
-          QPID=$!
+          echo $! > qemu.pid
           sleep 5
-          if ! kill -0 $QPID 2>/dev/null; then
+          if ! kill -0 $(cat qemu.pid) 2>/dev/null; then
             echo "QEMU n'a pas demarre. Sa sortie :"
             cat qemu.log
-            exit 1
+            echo qemu-mort > verdict
+          else
+            echo "QEMU lance (pid $(cat qemu.pid)), surveillance par tranches"
           fi
 
-          # On guette soit l'invite de connexion (succès), soit les signatures
-          # d'échec connues de l'initramfs.
-          VERDICT="timeout"
-          # Fenetre elargie a 70 min : grub doit lire 113 Mo a travers
-          # NTFS -> loopback -> ext4 en emulation TCG, c'est lent par nature.
-          for i in $(seq 1 420); do
-            if grep -qE "spike login:|Reached target Multi-User|Startup finished in" serial.log 2>/dev/null; then VERDICT="ok"; break; fi
-            if grep -qE "Kernel panic|Dropping to a shell|ALERT!|does not exist|Entering emergency mode|Can.t find ext4|dracut-initqueue" serial.log 2>/dev/null; then VERDICT="echec"; break; fi
-            # Grub qui rend la main a son shell = echec, inutile d'attendre 35 min
-            if grep -qE "configfile a rendu la main|Minimal BASH-like line editing" serial.log 2>/dev/null; then VERDICT="echec-grub"; break; fi
-            if ! kill -0 $QPID 2>/dev/null; then VERDICT="qemu-mort"; break; fi
-            sleep 10
-          done
-          sudo kill $QPID 2>/dev/null || true
-          sleep 2
+      - name: "Étage 2 — tranche 1"
+        continue-on-error: true
+        run: WORK=/mnt/spike bash tools/spike/checkpoint.sh 840
+      - name: "Console apres tranche 1"
+        if: always()
+        uses: actions/upload-artifact@v4
+        with: { name: serial-t1, path: /mnt/spike/serial.log, if-no-files-found: ignore, overwrite: true }
 
+      - name: "Étage 2 — tranche 2"
+        continue-on-error: true
+        run: WORK=/mnt/spike bash tools/spike/checkpoint.sh 840
+      - name: "Console apres tranche 2"
+        if: always()
+        uses: actions/upload-artifact@v4
+        with: { name: serial-t2, path: /mnt/spike/serial.log, if-no-files-found: ignore, overwrite: true }
+
+      - name: "Étage 2 — tranche 3"
+        continue-on-error: true
+        run: WORK=/mnt/spike bash tools/spike/checkpoint.sh 840
+      - name: "Console apres tranche 3"
+        if: always()
+        uses: actions/upload-artifact@v4
+        with: { name: serial-t3, path: /mnt/spike/serial.log, if-no-files-found: ignore, overwrite: true }
+
+      - name: "Étage 2 — tranche 4"
+        continue-on-error: true
+        run: WORK=/mnt/spike bash tools/spike/checkpoint.sh 840
+      - name: "Console apres tranche 4"
+        if: always()
+        uses: actions/upload-artifact@v4
+        with: { name: serial-t4, path: /mnt/spike/serial.log, if-no-files-found: ignore, overwrite: true }
+
+      - name: "Étage 2 — tranche 5"
+        continue-on-error: true
+        run: WORK=/mnt/spike bash tools/spike/checkpoint.sh 840
+      - name: "Console apres tranche 5"
+        if: always()
+        uses: actions/upload-artifact@v4
+        with: { name: serial-t5, path: /mnt/spike/serial.log, if-no-files-found: ignore, overwrite: true }
+
+      - name: "Étage 2 — verdict"
+        continue-on-error: true
+        run: |
+          cd /mnt/spike
+          sudo kill $(cat qemu.pid) 2>/dev/null || true
+          sleep 2
           echo "=============== SORTIE QEMU ==============="
           cat qemu.log || true
           echo "=============== CONSOLE SERIE ==============="
-          cat serial.log || true
+          tr -d '\000' < serial.log || true
           echo "============================================="
-          echo "VERDICT : $VERDICT"
-          test "$VERDICT" = "ok"
+          echo "VERDICT : $( [ -f verdict ] && cat verdict || echo timeout )"
+          test "$( [ -f verdict ] && cat verdict )" = "ok"
 
       - name: Journaux
         if: always()
