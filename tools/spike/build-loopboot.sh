@@ -186,7 +186,28 @@ echo "root:$ROOT_PASSWORD" | chpasswd
 systemctl enable serial-getty@ttyS0.service >/dev/null 2>&1 || true
 KVER=\$(ls /lib/modules | sort -V | tail -1)
 echo "noyau détecté : \$KVER"
-update-initramfs -u -k \$KVER
+
+# Ubuntu 26.04 installe dracut ET initramfs-tools, et c'est dracut qui produit
+# l'initrd par defaut. Or dracut ne connait pas le parametre loop= : il monte
+# root= directement, d'ou le "EXT4-fs (vda2): VFS: Can't find ext4 filesystem"
+# observe au run precedent, vda2 etant la partition NTFS. On force donc la
+# generation par initramfs-tools, dont scripts/local gere loop= nativement.
+if command -v mkinitramfs >/dev/null 2>&1; then
+	echo ">>> generation par initramfs-tools (mkinitramfs)"
+	mkinitramfs -o /boot/initrd.img-\$KVER \$KVER
+else
+	echo ">>> mkinitramfs absent, repli sur update-initramfs"
+	update-initramfs -u -k \$KVER
+fi
+
+echo "--- identification du generateur reel ---"
+if lsinitramfs /boot/initrd.img-\$KVER 2>/dev/null | grep -qE "scripts/local"; then
+	echo "GENERATEUR : initramfs-tools (scripts/local present)"
+elif lsinitramfs /boot/initrd.img-\$KVER 2>/dev/null | grep -qi "dracut"; then
+	echo "GENERATEUR : dracut"
+else
+	echo "GENERATEUR : indetermine (lsinitramfs muet)"
+fi
 ls -l /boot/
 CHROOT
 chmod +x "$MNT_ROOT/tmp/inchroot.sh"
