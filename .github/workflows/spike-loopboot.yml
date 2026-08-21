@@ -49,11 +49,55 @@ jobs:
         run: |
           bash tools/wubi/build-wubildr.sh /mnt/spike/grubx64.efi
           ls -l /mnt/spike/grubx64.efi
-      - name: Publication de wubildr
+      # Paquet prêt à l'emploi : l'utilisateur final n'a besoin d'aucune machine
+      # Linux pour préparer l'installation. Seule la FABRICATION du chargeur en
+      # exige une, et elle a lieu ici, une fois.
+      - name: Paquet Windows
+        run: |
+          KIT=/mnt/spike/wubi-windows-kit
+          mkdir -p "$KIT"
+          cp tools/wubi/Wubi-Gui.ps1 tools/wubi/Install-Wubi.ps1 tools/wubi/install-wubi.sh "$KIT/"
+          cp /mnt/spike/grubx64.efi "$KIT/"
+          cat > "$KIT/LISEZ-MOI.txt" << 'TXT'
+          Installation d'Ubuntu aux côtés de Windows, sans repartitionner
+          ==============================================================
+
+          Ubuntu est installé dans un fichier posé sur votre partition Windows.
+          Aucune partition n'est modifiée, et tout se désinstalle.
+
+          CE QU'IL VOUS FAUT
+            - ce dossier
+            - une image ISO d'Ubuntu 26.04 ou plus récente (ubuntu.com)
+            - environ 40 Go libres sur un disque en NTFS
+
+          MARCHE À SUIVRE
+            1. Clic droit sur Wubi-Gui.ps1 > Exécuter avec PowerShell
+               (il demande les droits administrateur de lui-même)
+            2. Choisir l'ISO, le disque, la taille, le compte. Valider.
+            3. Redémarrer et choisir « Ubuntu (Wubi) » au démarrage.
+            4. Dans la session Ubuntu qui s'ouvre, lancer l'installation :
+                  sudo bash /cdrom/../install-wubi.sh
+               (la commande exacte est rappelée à la fin de l'étape 1)
+            5. Redémarrer : Ubuntu démarre depuis le fichier.
+
+          POUR TOUT DÉFAIRE
+              .\Install-Wubi.ps1 -Uninstall
+
+          AVERTISSEMENTS
+            - Le démarrage rapide de Windows doit rester désactivé. Sinon
+              Windows s'hiberne au lieu de s'éteindre, la partition reste
+              occupée, et Ubuntu ne démarre pas. L'interface le propose.
+            - grubx64.efi n'est pas signé : si le Secure Boot est actif, il
+              faut le désactiver, ou signer le chargeur et enrôler la clé.
+          TXT
+          (cd /mnt/spike && zip -r wubi-windows-kit.zip wubi-windows-kit >/dev/null)
+          ls -l /mnt/spike/wubi-windows-kit.zip
+
+      - name: Publication du paquet
         uses: actions/upload-artifact@v4
         with:
-          name: wubildr
-          path: /mnt/spike/grubx64.efi
+          name: wubi-windows-kit
+          path: /mnt/spike/wubi-windows-kit.zip
           if-no-files-found: error
 
       - name: Préparation du disque de test (GPT + ESP + NTFS)
