@@ -41,7 +41,8 @@ param(
     [string]$Wubildr,
     [string]$InstallScript = "$PSScriptRoot\install-wubi.sh",
     [string]$TargetDrive = "C:",
-    [switch]$Uninstall
+    [switch]$Uninstall,
+    [switch]$GarderDemarrageRapide
 )
 
 $ErrorActionPreference = 'Stop'
@@ -113,12 +114,11 @@ if ($rapide -eq 1) {
     Souci "Windows ne s'eteint alors jamais vraiment : il s'hiberne, et la partition"
     Souci "NTFS reste marquee comme occupee. Linux ne pourra pas y ecrire, donc le"
     Souci "systeme ne demarrera pas."
-    $rep = Read-Host "    Le desactiver maintenant ? (powercfg /h off) [O/n]"
-    if ($rep -eq '' -or $rep -match '^[oOyY]') {
+    if ($GarderDemarrageRapide) {
+        Souci "laisse actif a votre demande : l'installation echouera probablement."
+    } else {
         powercfg /h off
         Info "desactive. (Pour le remettre plus tard : powercfg /h on)"
-    } else {
-        Souci "laisse actif : l'installation echouera probablement."
     }
 } else {
     Info "deja desactive."

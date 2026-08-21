@@ -88,6 +88,24 @@ fail() { echo ""; echo "!!! ÉCHEC : $*" >&2; exit 1; }
 # ------------------------------------------------------------------ vérifications
 say "Vérifications"
 [ "$(id -u)" = "0" ] || fail "à lancer en root (sudo)"
+
+# Réponses éventuellement déposées par l'interface Windows : elles évitent de
+# tout resaisir dans la session live. Les options de la ligne de commande
+# restent prioritaires.
+REPONSES="$HOST_MNT/$INSTALL_DIR/install/wubi-reponses.conf"
+if [ -f "$REPONSES" ]; then
+	info "réponses trouvées : $REPONSES"
+	while IFS='=' read -r cle val; do
+		[ -n "$cle" ] || continue
+		case "$cle" in
+			user)     [ "$USERNAME" = "ubuntu" ] && USERNAME="$val" ;;
+			password) [ -z "$PASSWORD" ] && PASSWORD="$val" ;;
+			size)     [ "$SIZE_GB" = "30" ] && SIZE_GB="$val" ;;
+			locale)   [ "$LOCALE" = "fr_FR.UTF-8" ] && LOCALE="$val" ;;
+			keyboard) [ "$KEYBOARD" = "fr" ] && KEYBOARD="$val" ;;
+		esac
+	done < "$REPONSES"
+fi
 [ -n "$ISO" ] || { echo "--iso est obligatoire" >&2; usage 1; }
 [ -f "$ISO" ] || fail "ISO introuvable : $ISO"
 
