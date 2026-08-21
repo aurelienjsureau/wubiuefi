@@ -1,22 +1,7 @@
-<#
-.SYNOPSIS
-    Interface graphique de l'étape Windows de Wubi.
-
-.DESCRIPTION
-    Fenêtre WinForms proposant le choix de l'ISO, du disque hôte, de la taille
-    du système et du compte à créer, puis appelant Install-Wubi.ps1.
-
-    Repose uniquement sur ce que Windows fournit : rien à installer sur les
-    machines cibles. Pour obtenir un exécutable double-cliquable :
-        Install-Module ps2exe -Scope CurrentUser
-        Invoke-PS2EXE .\Wubi-Gui.ps1 .\Wubi.exe -requireAdmin -noConsole
-
-    Se relance seule en administrateur si nécessaire.
-#>
+﻿# Interface graphique de l'etape Windows de Wubi.
 [CmdletBinding()]
 param([switch]$Eleve)
 
-# ------------------------------------------------------------ élévation
 $moi = [Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()
 if (-not $moi.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
     if ($Eleve) { throw "elevation impossible" }
@@ -31,7 +16,6 @@ Add-Type -AssemblyName System.Windows.Forms, System.Drawing
 
 $ICI = Split-Path -Parent $PSCommandPath
 
-# ------------------------------------------------------------ fenêtre
 $f = New-Object Windows.Forms.Form
 $f.Text = "Installation d'Ubuntu aux côtés de Windows"
 $f.Size = New-Object Drawing.Size(640, 560)
@@ -52,7 +36,6 @@ $titre.Location = New-Object Drawing.Point(20, 15)
 $titre.Size = New-Object Drawing.Size(590, 40)
 $f.Controls.Add($titre)
 
-# --- ISO
 Etiquette "Image ISO d'Ubuntu :" 70 | Out-Null
 $tIso = New-Object Windows.Forms.TextBox
 $tIso.Location = New-Object Drawing.Point(200, 68)
@@ -68,7 +51,6 @@ $bIso.Add_Click({
 })
 $f.Controls.Add($bIso)
 
-# --- chargeur
 Etiquette "Chargeur (grubx64.efi) :" 105 | Out-Null
 $tGrub = New-Object Windows.Forms.TextBox
 $tGrub.Location = New-Object Drawing.Point(200, 103)
@@ -85,7 +67,6 @@ $bGrub.Add_Click({
 })
 $f.Controls.Add($bGrub)
 
-# --- disque : seuls les volumes NTFS avec assez de place
 Etiquette "Disque d'installation :" 145 | Out-Null
 $cDisque = New-Object Windows.Forms.ComboBox
 $cDisque.Location = New-Object Drawing.Point(200, 143)
@@ -93,14 +74,13 @@ $cDisque.Size = New-Object Drawing.Size(410, 22)
 $cDisque.DropDownStyle = 'DropDownList'
 Get-Volume | Where-Object { $_.DriveLetter -and $_.FileSystem -eq 'NTFS' -and $_.SizeRemaining -gt 40GB } |
     Sort-Object DriveLetter | ForEach-Object {
-        $cDisque.Items.Add(("{0}: — {1} Go libres{2}" -f $_.DriveLetter,
+        $cDisque.Items.Add(("{0}: - {1} Go libres{2}" -f $_.DriveLetter,
             [math]::Round($_.SizeRemaining/1GB,0),
             $(if ($_.FileSystemLabel) { " ($($_.FileSystemLabel))" } else { "" }))) | Out-Null
     }
 if ($cDisque.Items.Count -gt 0) { $cDisque.SelectedIndex = 0 }
 $f.Controls.Add($cDisque)
 
-# --- taille
 Etiquette "Taille du système :" 185 | Out-Null
 $cTaille = New-Object Windows.Forms.ComboBox
 $cTaille.Location = New-Object Drawing.Point(200, 183)
@@ -110,7 +90,6 @@ $cTaille.DropDownStyle = 'DropDownList'
 $cTaille.SelectedIndex = 2
 $f.Controls.Add($cTaille)
 
-# --- compte
 Etiquette "Nom d'utilisateur :" 225 | Out-Null
 $tUser = New-Object Windows.Forms.TextBox
 $tUser.Location = New-Object Drawing.Point(200, 223)
@@ -132,7 +111,6 @@ $tPass2.Size = New-Object Drawing.Size(150, 22)
 $tPass2.UseSystemPasswordChar = $true
 $f.Controls.Add($tPass2)
 
-# --- langue et clavier
 Etiquette "Langue :" 345 | Out-Null
 $cLangue = New-Object Windows.Forms.ComboBox
 $cLangue.Location = New-Object Drawing.Point(200, 343)
@@ -152,7 +130,6 @@ $cClavier.DropDownStyle = 'DropDownList'
 $cClavier.SelectedIndex = 0
 $f.Controls.Add($cClavier)
 
-# --- démarrage rapide
 $cRapide = New-Object Windows.Forms.CheckBox
 $cRapide.Text = "Désactiver le démarrage rapide de Windows (nécessaire)"
 $cRapide.Location = New-Object Drawing.Point(20, 420)
@@ -167,7 +144,6 @@ $avert.Size = New-Object Drawing.Size(580, 20)
 $avert.ForeColor = [Drawing.Color]::DimGray
 $f.Controls.Add($avert)
 
-# --- boutons
 $bOk = New-Object Windows.Forms.Button
 $bOk.Text = "Préparer l'installation"; $bOk.Location = New-Object Drawing.Point(340, 480)
 $bOk.Size = New-Object Drawing.Size(160, 32)
@@ -210,8 +186,6 @@ Continuer ?
         '-NoProfile','-ExecutionPolicy','Bypass','-File',"`"$ICI\Install-Wubi.ps1`"",
         '-Iso',"`"$($tIso.Text)`"", '-Wubildr',"`"$($tGrub.Text)`"", '-TargetDrive',$lettre
     )
-    # Les choix de compte et de langue servent à la seconde étape : on les
-    # dépose à côté du script d'installation, qui les relira dans la session live.
     $reponses = @{
         user = $tUser.Text; password = $tPass.Text; size = $taille
         locale = $cLangue.SelectedItem; keyboard = $cClavier.SelectedItem
@@ -223,7 +197,7 @@ Continuer ?
 
     if (-not $cRapide.Checked) { $args += '-GarderDemarrageRapide' }
     Start-Process powershell.exe -Verb RunAs -Wait -ArgumentList $args
-    [Windows.Forms.MessageBox]::Show("Préparation terminée.`n`nRedémarrez et choisissez « Ubuntu (Wubi) » au démarrage.","Terminé")
+    [Windows.Forms.MessageBox]::Show("Préparation terminée.`n`nRedémarrez et choisissez Ubuntu (Wubi) au démarrage.","Terminé")
     $f.Close()
 })
 

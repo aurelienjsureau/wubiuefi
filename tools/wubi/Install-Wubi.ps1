@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
     Étape Windows de l'installation Wubi : prépare le redémarrage vers Ubuntu.
 
@@ -11,7 +11,7 @@
       4. ajoute une entrée au menu de démarrage de Windows
 
     Au redémarrage suivant, choisir cette entrée amène dans une session live
-    Ubuntu chargée depuis le disque dur — sans clé USB. C'est là que
+    Ubuntu chargée depuis le disque dur - sans clé USB. C'est là que
     install-wubi.sh installe réellement le système dans root.disk.
 
     Rien n'est installé sur Windows : PowerShell, bcdedit et mountvol sont
@@ -52,7 +52,6 @@ function Info($m)  { Write-Host "    $m" }
 function Souci($m) { Write-Host "    $m" -ForegroundColor Yellow }
 function Fatal($m) { Write-Host ""; Write-Host "ECHEC : $m" -ForegroundColor Red; exit 1 }
 
-# ------------------------------------------------------------------ contrôles
 Etape "Verifications"
 
 $moi = [Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()
@@ -60,7 +59,6 @@ if (-not $moi.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) 
     Fatal "a lancer dans un PowerShell ADMINISTRATEUR (clic droit sur le menu Demarrer > Terminal (admin))"
 }
 
-# UEFI obligatoire : wubildr est un binaire EFI, il n'y a pas de variante BIOS ici.
 $firmware = $env:firmware_type
 if (-not $firmware) {
     $firmware = if (Test-Path 'HKLM:\SYSTEM\CurrentControlSet\Control\SecureBoot\State') { 'UEFI' } else { 'Unknown' }
@@ -71,7 +69,6 @@ Info "micrologiciel : $firmware"
 $racine = "$TargetDrive\ubuntu"
 $dossierInstall = "$racine\install"
 
-# ------------------------------------------------------------------ désinstallation
 if ($Uninstall) {
     Etape "Desinstallation"
     $entrees = (bcdedit /enum firmware) -join "`n"
@@ -105,7 +102,6 @@ Info "disque cible  : $TargetDrive ($($volume.FileSystem), $libreGo Go libres)"
 Info "ISO           : $($isoInfo.Name) ($([math]::Round($isoInfo.Length/1GB,2)) Go)"
 if ($libreGo -lt $besoinGo) { Fatal "espace insuffisant : $libreGo Go libres, ~$besoinGo Go necessaires (ISO + systeme)" }
 
-# ------------------------------------------------------------------ démarrage rapide
 Etape "Demarrage rapide de Windows"
 $cle = 'HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager\Power'
 $rapide = (Get-ItemProperty -Path $cle -Name HiberbootEnabled -ErrorAction SilentlyContinue).HiberbootEnabled
@@ -124,7 +120,6 @@ if ($rapide -eq 1) {
     Info "deja desactive."
 }
 
-# ------------------------------------------------------------------ copie
 Etape "Copie des fichiers sur $TargetDrive"
 New-Item -ItemType Directory -Force -Path "$racine\disks", $dossierInstall | Out-Null
 
@@ -138,9 +133,6 @@ if (Test-Path $isoCible) {
 Copy-Item $InstallScript "$dossierInstall\install-wubi.sh" -Force
 Info "install-wubi.sh depose dans $dossierInstall"
 
-# Configuration de la phase d'installation : elle seule connait le nom de l'ISO.
-# Le systeme live est charge DEPUIS L'ISO posee sur le disque (iso-scan), ce qui
-# evite toute cle USB.
 $nomIso = $isoInfo.Name
 $cfg = @"
 search --no-floppy --file --set=hostdev /ubuntu/install/wubi-install.cfg
@@ -153,7 +145,6 @@ boot
 [IO.File]::WriteAllText("$dossierInstall\wubi-install.cfg", $cfg.Replace("`r`n","`n"))
 Info "configuration de demarrage ecrite"
 
-# ------------------------------------------------------------------ ESP
 Etape "Installation du chargeur sur la partition EFI"
 $lettreEsp = 'S:'
 if (Test-Path $lettreEsp) { $lettreEsp = 'Y:' }
@@ -167,7 +158,6 @@ try {
     mountvol $lettreEsp /d
 }
 
-# ------------------------------------------------------------------ entrée de démarrage
 Etape "Entree dans le menu de demarrage"
 $sortie = bcdedit /copy '{bootmgr}' /d 'Ubuntu (Wubi)' 2>&1 | Out-String
 if ($sortie -match '\{[0-9a-fA-F-]{36}\}') {
@@ -182,13 +172,12 @@ if ($sortie -match '\{[0-9a-fA-F-]{36}\}') {
     Souci "  bcdedit /set {fwbootmgr} displayorder {identifiant-obtenu} /addfirst"
 }
 
-# ------------------------------------------------------------------ fin
 Etape "PRET"
 Write-Host @"
-    Redemarrez, puis choisissez « Ubuntu (Wubi) » au demarrage.
+    Redemarrez, puis choisissez " Ubuntu (Wubi) " au demarrage.
 
     Vous arriverez dans une session live Ubuntu, chargee depuis l'ISO posee sur
-    $TargetDrive — aucune cle USB necessaire. Ouvrez-y un terminal et lancez :
+    $TargetDrive - aucune cle USB necessaire. Ouvrez-y un terminal et lancez :
 
         sudo bash /media/*/ubuntu/install/install-wubi.sh \
              --iso /media/*/ubuntu/$nomIso \
