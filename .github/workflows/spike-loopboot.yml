@@ -42,6 +42,20 @@ jobs:
           curl -L --retry 5 --retry-delay 5 -o /mnt/spike/image.iso "$URL"
           ls -lh /mnt/spike/image.iso
 
+      # wubildr : la seule pièce qui doit être produite sous Linux
+      # (grub-mkimage n'existe pas sous Windows). Publié en artefact, il n'y a
+      # plus qu'à le copier sur la machine cible.
+      - name: Construction de wubildr
+        run: |
+          bash tools/wubi/build-wubildr.sh /mnt/spike/grubx64.efi
+          ls -l /mnt/spike/grubx64.efi
+      - name: Publication de wubildr
+        uses: actions/upload-artifact@v4
+        with:
+          name: wubildr
+          path: /mnt/spike/grubx64.efi
+          if-no-files-found: error
+
       - name: Préparation du disque de test (GPT + ESP + NTFS)
         env: { WORK: /mnt/spike }
         run: sudo -E bash tools/spike/prepare-disk.sh
@@ -231,4 +245,89 @@ jobs:
             /mnt/spike/ovmf.log
             /mnt/spike/direct-serial.log
             /mnt/spike/direct-qemu.log
+          if-no-files-found: ignore
+
+  # Vérifie la PHASE 1 : wubildr démarre-t-il l'ISO posée sur la partition
+  # NTFS, sans clé USB ? Repose sur iso-scan/filename, dernière hypothèse non
+  # testée de la chaîne.
+  phase1-iso:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Dépendances
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            ntfs-3g gdisk dosfstools qemu-system-x86 ovmf grub-efi-amd64-bin curl
+          sudo mkdir -p /mnt/iso1 && sudo chown $USER /mnt/iso1
+
+      - name: Récupération de l'ISO
+        env:
+          ISO_URL: ${{ inputs.iso_url }}
+        run: |
+          URL="${ISO_URL:-https://releases.ubuntu.com/26.04/ubuntu-26.04-live-server-amd64.iso}"
+          curl -L --retry 5 -o /mnt/iso1/image.iso "$URL"
+          ls -lh /mnt/iso1/image.iso
+
+      - name: Disque avec ISO déposée (pas de root.disk)
+        env: { WORK: /mnt/iso1, IMG_SIZE: 20G }
+        run: |
+          sudo -E bash tools/spike/prepare-disk.sh
+          . /mnt/iso1/spike.env
+          bash tools/wubi/build-wubildr.sh /mnt/iso1/grubx64.efi
+          sudo mkdir -p "$MNT_HOST/ubuntu/install" "$MNT_ESP/EFI/wubildr"
+          sudo cp /mnt/iso1/image.iso "$MNT_HOST/ubuntu/image.iso"
+          sudo cp /mnt/iso1/grubx64.efi "$MNT_ESP/EFI/wubildr/grubx64.efi"
+          sudo mkdir -p "$MNT_ESP/EFI/BOOT"
+          sudo cp /mnt/iso1/grubx64.efi "$MNT_ESP/EFI/BOOT/BOOTX64.EFI"
+          # Même contenu que celui écrit par Install-Wubi.ps1
+          sudo tee "$MNT_HOST/ubuntu/install/wubi-install.cfg" > /dev/null << 'CFG'
+          search --no-floppy --file --set=hostdev /ubuntu/install/wubi-install.cfg
+          loopback iso ($hostdev)/ubuntu/image.iso
+          set root=(iso)
+          linux (iso)/casper/vmlinuz boot=casper iso-scan/filename=/ubuntu/image.iso ro console=ttyS0,115200
+          initrd (iso)/casper/initrd
+          boot
+          CFG
+          sync
+          sudo umount "$MNT_ESP" "$MNT_HOST"
+          sudo losetup -d "$LOOPDEV"
+
+      - name: Démarrage de l'ISO depuis le disque (UEFI)
+        run: |
+          cd /mnt/iso1
+          CODE=$(ls /usr/share/OVMF/OVMF_CODE_4M.fd /usr/share/OVMF/OVMF_CODE.fd 2>/dev/null | head -1)
+          VARS=$(ls /usr/share/OVMF/OVMF_VARS_4M.fd /usr/share/OVMF/OVMF_VARS.fd 2>/dev/null | head -1)
+          cp "$VARS" vars.fd
+          ACCEL="-cpu max"; [ -w /dev/kvm ] && ACCEL="-enable-kvm -cpu host"
+          : > serial.log
+          sudo qemu-system-x86_64 -machine q35 -m 4096 -smp 4 $ACCEL \
+            -drive if=pflash,format=raw,readonly=on,file="$CODE" \
+            -drive if=pflash,format=raw,file=vars.fd \
+            -drive file=disk.img,format=raw,if=virtio \
+            -nic none -display none -no-reboot \
+            -serial file:serial.log > qemu.log 2>&1 &
+          QPID=$!
+          VERDICT=timeout
+          for i in $(seq 1 360); do
+            grep -qE "ubuntu login:|Reached target Multi-User|Startup finished in|Welcome to Ubuntu" serial.log 2>/dev/null && { VERDICT=ok; break; }
+            grep -qE "Kernel panic|Unable to find a medium|Dropping to a shell|ALERT!" serial.log 2>/dev/null && { VERDICT=echec; break; }
+            kill -0 $QPID 2>/dev/null || { VERDICT=qemu-mort; break; }
+            sleep 10
+          done
+          sudo kill $QPID 2>/dev/null || true; sleep 2
+          echo "=============== CONSOLE ==============="
+          tr -d '\000' < serial.log | tail -80 || true
+          echo "======================================="
+          echo "VERDICT PHASE 1 (iso-scan) : $VERDICT"
+          test "$VERDICT" = ok
+
+      - name: Journal
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: phase1-logs
+          path: /mnt/iso1/serial.log
           if-no-files-found: ignore
