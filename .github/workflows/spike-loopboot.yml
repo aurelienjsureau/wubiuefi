@@ -355,13 +355,15 @@ jobs:
             -nic none -display none -no-reboot \
             -serial file:serial.log > qemu.log 2>&1 &
           QPID=$!
-          # Ce job ne teste QUE la chaine grub -> NTFS -> ISO -> noyau. Des que le
-          # noyau parle, elle est prouvee : inutile d'attendre l'invite de session,
-          # que le TCG met plus d'une heure a atteindre. Le demarrage complet est
-          # verifie par les jobs loop-boot.
+          # Le marqueur doit prouver que iso-scan a TROUVE l'ISO sur la NTFS et
+          # bascule dessus : systemd[1] ne parle qu'apres le switch_root. Un
+          # marqueur plus precoce (banniere du noyau, nom d'un script casper)
+          # passerait au vert alors meme que iso-scan echoue -- c'est justement
+          # l'hypothese que ce job doit verifier. Inutile en revanche d'attendre
+          # l'invite de session, que le TCG met plus d'une heure a atteindre.
           VERDICT=timeout
-          for i in $(seq 1 180); do
-            grep -qE "Linux version|casper|ubuntu login:|Welcome to Ubuntu" serial.log 2>/dev/null && { VERDICT=ok; break; }
+          for i in $(seq 1 300); do
+            grep -qE "systemd\[1\]|casper-bottom|Welcome to Ubuntu|ubuntu login:" serial.log 2>/dev/null && { VERDICT=ok; break; }
             grep -qE "Kernel panic|Unable to find a medium|Dropping to a shell|ALERT!" serial.log 2>/dev/null && { VERDICT=echec; break; }
             kill -0 $QPID 2>/dev/null || { VERDICT=qemu-mort; break; }
             sleep 10
