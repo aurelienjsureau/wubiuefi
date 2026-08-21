@@ -1,15 +1,18 @@
-name: Chargeur wubildr (court)
+name: Chargeur et executable (court)
 
 # Le banc d'essai complet dure des heures parce qu'il télécharge une ISO et
-# démarre QEMU. Reconstruire le seul chargeur prend une minute : quand on ne
-# touche qu'à lui, c'est ce workflow-ci qui répond.
+# démarre QEMU. Reconstruire le chargeur et l'exe prend une minute : quand on
+# ne touche qu'à eux, c'est ce workflow-ci qui répond.
+#
+# Deux systèmes sont nécessaires et c'est irréductible : grub-mkimage n'existe
+# que sous Linux, csc.exe que sous Windows. D'où deux travaux enchaînés, le
+# second consommant l'artefact du premier.
 
 on:
   push:
     branches: [ spike-loopboot-2604 ]
     paths:
-      - 'tools/wubi/wubildr.cfg'
-      - 'tools/wubi/build-wubildr.sh'
+      - 'tools/wubi/**'
       - '.github/workflows/wubildr.yml'
   workflow_dispatch:
 
@@ -34,4 +37,27 @@ jobs:
         with:
           name: wubildr
           path: /tmp/grubx64.efi
+          if-no-files-found: error
+
+  exe:
+    needs: wubildr
+    runs-on: windows-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: wubildr
+          path: tools/wubi
+
+      - name: Construction de Wubi.exe
+        shell: powershell
+        run: |
+          .\tools\wubi\build-exe.ps1 -Sortie "$env:GITHUB_WORKSPACE\build\winboot\Wubi.exe"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Wubi-exe
+          path: build/winboot/Wubi.exe
           if-no-files-found: error

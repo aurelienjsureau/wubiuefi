@@ -39,6 +39,13 @@ New-Item -ItemType Directory -Force -Path $travail | Out-Null
 $scriptFusionne = Join-Path $travail 'wubi.ps1'
 [IO.File]::WriteAllText($scriptFusionne, $script, (New-Object Text.UTF8Encoding($false)))
 
+$erreurs = $null
+[void][Management.Automation.Language.Parser]::ParseFile($scriptFusionne, [ref]$null, [ref]$erreurs)
+if ($erreurs -and $erreurs.Count -gt 0) {
+    foreach ($e in $erreurs) { Write-Host ("  ligne {0} : {1}" -f $e.Extent.StartLineNumber, $e.Message) }
+    throw "le script embarque ne se parse pas ($($erreurs.Count) erreurs)"
+}
+
 $csc = Join-Path $env:WINDIR 'Microsoft.NET\Framework64\v4.0.30319\csc.exe'
 if (-not (Test-Path $csc)) { throw "csc.exe introuvable : $csc" }
 

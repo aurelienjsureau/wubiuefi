@@ -395,6 +395,13 @@ EOF
 	fi
 fi
 
+# Le mot de passe du compte y figure en clair : ce fichier n'a aucune raison de
+# survivre à l'installation qu'il a servi à faire.
+if [ -f "$REPONSES" ]; then
+	rm -f "$REPONSES"
+	info "réponses effacées (elles contenaient le mot de passe en clair)"
+fi
+
 say "TERMINÉ"
 cat << FIN
     Système  : $ROOTDISK (${SIZE_GB} Go)
