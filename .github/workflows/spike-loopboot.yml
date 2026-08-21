@@ -34,13 +34,53 @@ jobs:
           sudo mkdir -p /mnt/spike
           sudo chown $USER /mnt/spike
 
-      - name: Construction de l'image (root.disk sur NTFS + grub EFI)
+      - name: Récupération de l'ISO
         env:
           ISO_URL: ${{ inputs.iso_url }}
-          WORK: /mnt/spike
         run: |
-          chmod +x tools/spike/build-loopboot.sh
-          sudo -E tools/spike/build-loopboot.sh
+          URL="${ISO_URL:-https://releases.ubuntu.com/26.04/ubuntu-26.04-live-server-amd64.iso}"
+          curl -L --retry 5 --retry-delay 5 -o /mnt/spike/image.iso "$URL"
+          ls -lh /mnt/spike/image.iso
+
+      - name: Préparation du disque de test (GPT + ESP + NTFS)
+        env: { WORK: /mnt/spike }
+        run: sudo -E bash tools/spike/prepare-disk.sh
+
+      # C'est le VRAI installeur qui est mis à l'épreuve ici, celui destiné à
+      # tourner depuis une session live sur la machine de l'utilisateur.
+      - name: "INSTALLATION (tools/wubi/install-wubi.sh)"
+        run: |
+          . /mnt/spike/spike.env
+          sudo bash tools/wubi/install-wubi.sh \
+            --iso /mnt/spike/image.iso \
+            --host "$MNT_HOST" \
+            --esp "$MNT_ESP" \
+            --size 9 --swap 0 \
+            --user spike --password spike \
+            --hostname spike \
+            --locale en_US.UTF-8 --keyboard us --timezone UTC \
+            --console-serial
+
+      - name: Extraction du noyau pour le test direct
+        run: |
+          . /mnt/spike/spike.env
+          sudo mkdir -p /mnt/spike/boot-direct
+          sudo mount -o loop "$MNT_HOST/ubuntu/disks/root.disk" /mnt/spike/mnt/root 2>/dev/null \
+            || { sudo mkdir -p /mnt/spike/mnt/root; sudo mount -o loop "$MNT_HOST/ubuntu/disks/root.disk" /mnt/spike/mnt/root; }
+          K=$(sudo sh -c 'ls /mnt/spike/mnt/root/boot/vmlinuz-* | sort -V | tail -1')
+          I=$(sudo sh -c 'ls /mnt/spike/mnt/root/boot/initrd.img-* | sort -V | tail -1')
+          echo "noyau : $K"; echo "initrd : $I"
+          sudo cp "$K" /mnt/spike/boot-direct/vmlinuz
+          sudo cp "$I" /mnt/spike/boot-direct/initrd.img
+          sudo umount /mnt/spike/mnt/root
+
+      - name: Démontage du disque de test
+        run: |
+          . /mnt/spike/spike.env
+          sync
+          sudo umount "$MNT_ESP" "$MNT_HOST"
+          sudo losetup -d "$LOOPDEV"
+          echo "disque libéré, prêt pour QEMU"
 
       # ETAGE 1 : la vraie question du spike. On court-circuite firmware et
       # bootloader en donnant le noyau et l'initrd directement a QEMU. Si ca
@@ -50,13 +90,13 @@ jobs:
         run: |
           cd /mnt/spike
           . ./spike.env
-          echo "racine hote : UUID=$NTFS_UUID   fichier : /$INSTALL_DIR/disks/root.disk"
+          echo "racine hote : PARTUUID=$HOST_PARTUUID   fichier : /ubuntu/disks/root.disk"
           ACCEL="-cpu max"; [ -w /dev/kvm ] && ACCEL="-enable-kvm -cpu host"
           : > direct-serial.log ; : > direct-qemu.log
           sudo qemu-system-x86_64 \
             -machine q35 -m 3072 -smp 4 $ACCEL \
             -kernel boot-direct/vmlinuz -initrd boot-direct/initrd.img \
-            -append "root=UUID=$NTFS_UUID rootfstype=ntfs3 loop=/$INSTALL_DIR/disks/root.disk loopfstype=ext4 ro console=ttyS0,115200" \
+            -append "root=PARTUUID=$HOST_PARTUUID rootfstype=ntfs3 loop=/ubuntu/disks/root.disk loopfstype=ext4 ro console=ttyS0,115200" \
             -drive file=disk.img,format=raw,if=virtio \
             -nic none -display none -no-reboot \
             -serial file:direct-serial.log > direct-qemu.log 2>&1 &
