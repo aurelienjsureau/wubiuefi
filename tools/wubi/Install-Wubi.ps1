@@ -163,13 +163,13 @@ $sortie = bcdedit /copy '{bootmgr}' /d 'Ubuntu (Wubi)' 2>&1 | Out-String
 if ($sortie -match '\{[0-9a-fA-F-]{36}\}') {
     $id = $Matches[0]
     bcdedit /set $id path \EFI\wubildr\grubx64.efi | Out-Null
-    bcdedit /set '{fwbootmgr}' displayorder $id /addfirst | Out-Null
-    Info "entree creee : $id"
+    bcdedit /set '{fwbootmgr}' displayorder $id /addlast | Out-Null
+    Info "entree creee : $id (placee EN DERNIER : Windows reste le systeme par defaut)"
 } else {
     Souci "creation automatique impossible. A faire a la main :"
     Souci "  bcdedit /copy {bootmgr} /d `"Ubuntu (Wubi)`""
     Souci "  bcdedit /set {identifiant-obtenu} path \EFI\wubildr\grubx64.efi"
-    Souci "  bcdedit /set {fwbootmgr} displayorder {identifiant-obtenu} /addfirst"
+    Souci "  bcdedit /set {fwbootmgr} displayorder {identifiant-obtenu} /addlast"
 }
 
 Etape "PRET"
