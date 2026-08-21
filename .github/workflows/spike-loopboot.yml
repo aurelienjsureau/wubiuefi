@@ -331,7 +331,8 @@ jobs:
           search --no-floppy --file --set=hostdev /ubuntu/install/wubi-install.cfg
           loopback iso ($hostdev)/ubuntu/image.iso
           set root=(iso)
-          linux (iso)/casper/vmlinuz boot=casper iso-scan/filename=/ubuntu/image.iso ro console=ttyS0,115200
+          set gfxpayload=text
+          linux (iso)/casper/vmlinuz iso-scan/filename=/ubuntu/image.iso console=ttyS0,115200 --- quiet
           initrd (iso)/casper/initrd
           boot
           CFG
@@ -354,9 +355,13 @@ jobs:
             -nic none -display none -no-reboot \
             -serial file:serial.log > qemu.log 2>&1 &
           QPID=$!
+          # Ce job ne teste QUE la chaine grub -> NTFS -> ISO -> noyau. Des que le
+          # noyau parle, elle est prouvee : inutile d'attendre l'invite de session,
+          # que le TCG met plus d'une heure a atteindre. Le demarrage complet est
+          # verifie par les jobs loop-boot.
           VERDICT=timeout
-          for i in $(seq 1 360); do
-            grep -qE "ubuntu login:|Reached target Multi-User|Startup finished in|Welcome to Ubuntu" serial.log 2>/dev/null && { VERDICT=ok; break; }
+          for i in $(seq 1 180); do
+            grep -qE "Linux version|casper|ubuntu login:|Welcome to Ubuntu" serial.log 2>/dev/null && { VERDICT=ok; break; }
             grep -qE "Kernel panic|Unable to find a medium|Dropping to a shell|ALERT!" serial.log 2>/dev/null && { VERDICT=echec; break; }
             kill -0 $QPID 2>/dev/null || { VERDICT=qemu-mort; break; }
             sleep 10

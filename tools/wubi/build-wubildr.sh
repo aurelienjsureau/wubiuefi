@@ -25,7 +25,8 @@ mkdir -p "$(dirname "$OUT")"
 # embarqué (-m), cette fois avec le parseur complet.
 TMP=$(mktemp -d)
 trap 'rm -rf "$TMP"' EXIT
-cp "$CFG" "$TMP/wubildr.cfg"
+STAMP="${WUBILDR_STAMP:-$(git -C "$ICI" describe --always --dirty 2>/dev/null || echo inconnu)-$(date -u +%Y%m%d%H%M)}"
+sed "s/@@STAMP@@/$STAMP/" "$CFG" > "$TMP/wubildr.cfg"
 ( cd "$TMP" && tar cf wubildr.tar wubildr.cfg )
 printf 'normal (memdisk)/wubildr.cfg\n' > "$TMP/bootstrap.cfg"
 
@@ -42,4 +43,15 @@ grub-mkimage -O x86_64-efi -o "$OUT" -c "$TMP/bootstrap.cfg" -m "$TMP/wubildr.ta
 	terminal serial gfxterm all_video video_bochs video_cirrus \
 	ls cat halt reboot minicmd probe
 
-echo "produit : $OUT ($(stat -c%s "$OUT") octets)"
+# Auto-test : une image dont le bootstrap ou le stamp manquent est une image
+# qui tombera sur l'invite `grub>` sur la machine de l'utilisateur. On refuse
+# de la livrer.
+for MARQUEUR in "normal (memdisk)/wubildr.cfg" "wubildr $STAMP"; do
+	if ! grep -qa -- "$MARQUEUR" "$OUT"; then
+		echo "image invalide : marqueur absent -- $MARQUEUR" >&2
+		rm -f "$OUT"
+		exit 1
+	fi
+done
+
+echo "produit : $OUT ($(stat -c%s "$OUT") octets, version $STAMP)"

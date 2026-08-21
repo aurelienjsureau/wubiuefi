@@ -182,7 +182,7 @@ Continuer ?
     if ([Windows.Forms.MessageBox]::Show($recap,"Confirmation",'OKCancel','Question') -ne 'OK') { return }
 
     $f.Hide()
-    $args = @(
+    $parametres = @(
         '-NoProfile','-ExecutionPolicy','Bypass','-File',"`"$ICI\Install-Wubi.ps1`"",
         '-Iso',"`"$($tIso.Text)`"", '-Wubildr',"`"$($tGrub.Text)`"", '-TargetDrive',$lettre
     )
@@ -195,9 +195,35 @@ Continuer ?
     ($reponses.GetEnumerator() | ForEach-Object { "$($_.Key)=$($_.Value)" }) -join "`n" |
         Set-Content -Path "$lettre\ubuntu\install\wubi-reponses.conf" -Encoding ASCII
 
-    if (-not $cRapide.Checked) { $args += '-GarderDemarrageRapide' }
-    Start-Process powershell.exe -Verb RunAs -Wait -ArgumentList $args
-    [Windows.Forms.MessageBox]::Show("Préparation terminée.`n`nRedémarrez et choisissez Ubuntu (Wubi) au démarrage.","Terminé")
+    if (-not $cRapide.Checked) { $parametres += '-GarderDemarrageRapide' }
+
+    $journal = "$env:PUBLIC\wubi-install.log"
+    if (Test-Path $journal) { Remove-Item $journal -Force -ErrorAction SilentlyContinue }
+
+    $code = 1
+    try {
+        $p = Start-Process powershell.exe -Verb RunAs -Wait -PassThru -ArgumentList $parametres
+        $code = $p.ExitCode
+    } catch {
+        [Windows.Forms.MessageBox]::Show("Impossible de lancer l'étape administrateur :`n`n$_","Échec",'OK','Error')
+        $f.Show(); return
+    }
+
+    if ($code -ne 0) {
+        $fin = if (Test-Path $journal) {
+            (Get-Content $journal -Tail 25) -join "`n"
+        } else {
+            "Aucun journal n'a été écrit : le script s'est arrêté avant de démarrer."
+        }
+        [Windows.Forms.MessageBox]::Show(
+            "La préparation a ÉCHOUÉ (code $code). Rien n'a été installé.`n`nFin du journal ($journal) :`n`n$fin",
+            "Échec",'OK','Error')
+        $f.Show(); return
+    }
+
+    [Windows.Forms.MessageBox]::Show(
+        "Préparation terminée.`n`nRedémarrez en maintenant la touche du menu de démarrage de votre carte mère (F12, F8, F11 ou Échap), puis choisissez « Ubuntu (Wubi) ».`n`nAucun menu ne s'affiche tout seul : Windows reste le système par défaut.",
+        "Terminé")
     $f.Close()
 })
 

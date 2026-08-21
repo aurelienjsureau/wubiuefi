@@ -39,7 +39,7 @@
 param(
     [string]$Iso,
     [string]$Wubildr,
-    [string]$InstallScript = "$PSScriptRoot\install-wubi.sh",
+    [string]$InstallScript,
     [string]$TargetDrive = "C:",
     [switch]$Uninstall,
     [switch]$GarderDemarrageRapide
@@ -47,12 +47,37 @@ param(
 
 $ErrorActionPreference = 'Stop'
 
+$Journal = "$env:PUBLIC\wubi-install.log"
+try { Start-Transcript -Path $Journal -Force | Out-Null } catch { }
+
 function Etape($m) { Write-Host ""; Write-Host "=== $m ===" -ForegroundColor Cyan }
 function Info($m)  { Write-Host "    $m" }
 function Souci($m) { Write-Host "    $m" -ForegroundColor Yellow }
-function Fatal($m) { Write-Host ""; Write-Host "ECHEC : $m" -ForegroundColor Red; exit 1 }
+function Fatal($m) {
+    Write-Host ""
+    Write-Host "ECHEC : $m" -ForegroundColor Red
+    try { Stop-Transcript | Out-Null } catch { }
+    exit 1
+}
+
+trap {
+    Write-Host ""
+    Write-Host "ECHEC INATTENDU : $_" -ForegroundColor Red
+    Write-Host $_.ScriptStackTrace
+    try { Stop-Transcript | Out-Null } catch { }
+    exit 1
+}
+
+$ICI = if ($PSScriptRoot) { $PSScriptRoot } else { Split-Path -Parent $PSCommandPath }
+if (-not $InstallScript) { $InstallScript = Join-Path $ICI 'install-wubi.sh' }
 
 Etape "Verifications"
+Info "journal : $Journal"
+Info "parametres recus :"
+Info "  -Iso           = [$Iso]"
+Info "  -Wubildr       = [$Wubildr]"
+Info "  -InstallScript = [$InstallScript]"
+Info "  -TargetDrive   = [$TargetDrive]"
 
 $moi = [Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()
 if (-not $moi.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
@@ -91,6 +116,18 @@ if (-not $Wubildr) { Fatal "-Wubildr est obligatoire (produit par build-wubildr.
 foreach ($f in @($Iso, $Wubildr, $InstallScript)) {
     if (-not (Test-Path $f)) { Fatal "fichier introuvable : $f" }
 }
+
+$empreinte = [Text.Encoding]::ASCII.GetString([IO.File]::ReadAllBytes($Wubildr))
+if (-not $empreinte.Contains('normal (memdisk)/wubildr.cfg')) {
+    Souci "Ce fichier .efi ne contient pas sa configuration en mini-disque."
+    Souci "grub s'arreterait a son invite sans rien demarrer."
+    Souci "Prenez le grubx64.efi livre avec ce script, ou reconstruisez-le"
+    Souci "avec tools/wubi/build-wubildr.sh."
+    Fatal "chargeur inutilisable (version perimee) : $Wubildr"
+}
+$version = [regex]::Match($empreinte, 'echo "wubildr ([^"]{1,64})"')
+if ($version.Success) { Info "chargeur      : version $($version.Groups[1].Value)" }
+else { Souci "chargeur      : version inconnue (image sans marquage)" }
 
 $volume = Get-Volume -DriveLetter $TargetDrive.TrimEnd(':')
 if ($volume.FileSystem -ne 'NTFS') { Fatal "$TargetDrive est en $($volume.FileSystem) ; le NTFS est requis" }
@@ -138,7 +175,8 @@ $cfg = @"
 search --no-floppy --file --set=hostdev /ubuntu/install/wubi-install.cfg
 loopback iso (`$hostdev)/ubuntu/$nomIso
 set root=(iso)
-linux (iso)/casper/vmlinuz boot=casper iso-scan/filename=/ubuntu/$nomIso ro quiet splash
+set gfxpayload=keep
+linux (iso)/casper/vmlinuz iso-scan/filename=/ubuntu/$nomIso --- quiet splash
 initrd (iso)/casper/initrd
 boot
 "@
@@ -174,7 +212,12 @@ if ($sortie -match '\{[0-9a-fA-F-]{36}\}') {
 
 Etape "PRET"
 Write-Host @"
-    Redemarrez, puis choisissez " Ubuntu (Wubi) " au demarrage.
+    Redemarrez en maintenant la touche du MENU DE DEMARRAGE de la carte mere
+    (F12, F8, F11 ou Echap selon le modele), puis choisissez " Ubuntu (Wubi) ".
+
+    AUCUN menu ne s'affiche tout seul : l'entree a ete placee en DERNIER pour
+    que Windows reste le systeme par defaut. Sans appuyer sur cette touche, la
+    machine demarre sous Windows comme d'habitude - c'est voulu.
 
     Vous arriverez dans une session live Ubuntu, chargee depuis l'ISO posee sur
     $TargetDrive - aucune cle USB necessaire. Ouvrez-y un terminal et lancez :
@@ -195,3 +238,6 @@ Write-Host @"
 
     Pour tout defaire :  .\Install-Wubi.ps1 -Uninstall
 "@ -ForegroundColor Green
+
+try { Stop-Transcript | Out-Null } catch { }
+exit 0
