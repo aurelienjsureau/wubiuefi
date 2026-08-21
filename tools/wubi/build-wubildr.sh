@@ -18,15 +18,27 @@ command -v grub-mkimage >/dev/null || { echo "grub-mkimage manquant (paquet grub
 
 mkdir -p "$(dirname "$OUT")"
 
+# La configuration passée par -c s'exécute dans le parseur MINIMAL de grub,
+# avant le chargement du module `normal` : ni commentaires, ni `if`, ni `[`.
+# D'où le montage de l'amont, repris ici : -c ne contient qu'une ligne, qui
+# bascule en mode normal et lit la vraie configuration depuis un mini-disque
+# embarqué (-m), cette fois avec le parseur complet.
+TMP=$(mktemp -d)
+trap 'rm -rf "$TMP"' EXIT
+cp "$CFG" "$TMP/wubildr.cfg"
+( cd "$TMP" && tar cf wubildr.tar wubildr.cfg )
+printf 'normal (memdisk)/wubildr.cfg\n' > "$TMP/bootstrap.cfg"
+
 # ntfs et ntfscomp : lecture de la partition Windows.
 # loopback + ext2 : ouverture de root.disk et lecture de l'ext4 dedans.
 # iso9660        : ouverture de l'ISO pendant la phase d'installation.
 # search_fs_file : recherche par fichier, seule fiable sur NTFS.
-grub-mkimage -O x86_64-efi -p "(lo)/boot/grub" -o "$OUT" -c "$CFG" \
+grub-mkimage -O x86_64-efi -o "$OUT" -c "$TMP/bootstrap.cfg" -m "$TMP/wubildr.tar" \
 	part_gpt part_msdos \
 	ntfs ntfscomp fat ext2 iso9660 loopback \
 	search search_fs_file search_fs_uuid search_label \
 	normal linux configfile echo test true sleep \
+	memdisk tar \
 	terminal serial gfxterm all_video video_bochs video_cirrus \
 	ls cat halt reboot minicmd probe
 
