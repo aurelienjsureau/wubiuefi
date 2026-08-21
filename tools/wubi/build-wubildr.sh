@@ -27,6 +27,13 @@ TMP=$(mktemp -d)
 trap 'rm -rf "$TMP"' EXIT
 STAMP="${WUBILDR_STAMP:-$(git -C "$ICI" describe --always --dirty 2>/dev/null || echo inconnu)-$(date -u +%Y%m%d%H%M)}"
 sed "s/@@STAMP@@/$STAMP/" "$CFG" > "$TMP/wubildr.cfg"
+
+# Une faute de syntaxe dans cette configuration ne se verrait qu'au démarrage,
+# sur la machine de l'utilisateur, sous la forme d'une invite `grub>` muette.
+if command -v grub-script-check >/dev/null; then
+	grub-script-check "$TMP/wubildr.cfg" || { echo "configuration refusée par grub-script-check" >&2; exit 1; }
+fi
+
 ( cd "$TMP" && tar cf wubildr.tar wubildr.cfg )
 printf 'normal (memdisk)/wubildr.cfg\n' > "$TMP/bootstrap.cfg"
 

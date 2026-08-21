@@ -1,0 +1,37 @@
+name: Chargeur wubildr (court)
+
+# Le banc d'essai complet dure des heures parce qu'il télécharge une ISO et
+# démarre QEMU. Reconstruire le seul chargeur prend une minute : quand on ne
+# touche qu'à lui, c'est ce workflow-ci qui répond.
+
+on:
+  push:
+    branches: [ spike-loopboot-2604 ]
+    paths:
+      - 'tools/wubi/wubildr.cfg'
+      - 'tools/wubi/build-wubildr.sh'
+      - '.github/workflows/wubildr.yml'
+  workflow_dispatch:
+
+jobs:
+  wubildr:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Dépendances
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends grub-efi-amd64-bin grub-common
+
+      - name: Construction
+        run: |
+          bash tools/wubi/build-wubildr.sh /tmp/grubx64.efi
+          ls -l /tmp/grubx64.efi
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wubildr
+          path: /tmp/grubx64.efi
+          if-no-files-found: error
