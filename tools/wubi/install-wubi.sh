@@ -252,6 +252,18 @@ passwd -l root >/dev/null 2>&1 || true
 # Une console série sert au diagnostic si l'affichage ne suit pas.
 systemctl enable serial-getty@ttyS0.service >/dev/null 2>&1 || true
 
+# Services propres aux images serveur, sans objet ici et qui BLOQUENT le
+# demarrage : multipathd (chemins multiples SAN) reste indefiniment en cours de
+# demarrage sur une racine loop-montee, et cloud-init attend des sources de
+# donnees inexistantes. Neutralises s'ils sont presents.
+for s in multipathd.service multipathd.socket; do
+	systemctl list-unit-files "\$s" >/dev/null 2>&1 && systemctl mask "\$s" >/dev/null 2>&1 || true
+done
+if [ -d /etc/cloud ]; then
+	touch /etc/cloud/cloud-init.disabled
+	echo "    cloud-init desactive"
+fi
+
 KVER=\$(ls /lib/modules | sort -V | tail -1)
 echo "    noyau : \$KVER"
 # 26.04 installe dracut ET initramfs-tools, et dracut est le générateur par
