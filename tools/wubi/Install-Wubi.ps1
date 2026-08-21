@@ -60,6 +60,17 @@ function Fatal($m) {
     exit 1
 }
 
+function EntreesWubi {
+    $texte = (bcdedit /enum firmware | Out-String)
+    $trouvees = @()
+    foreach ($bloc in ($texte -split "(?:\r?\n){2,}")) {
+        if ($bloc -match 'Ubuntu \(Wubi\)' -and $bloc -match '(?im)^\s*(?:identifier|identificateur)\s+(\{[0-9a-fA-F-]+\})') {
+            $trouvees += $Matches[1]
+        }
+    }
+    return $trouvees
+}
+
 trap {
     Write-Host ""
     Write-Host "ECHEC INATTENDU : $_" -ForegroundColor Red
@@ -96,13 +107,13 @@ $dossierInstall = "$racine\install"
 
 if ($Uninstall) {
     Etape "Desinstallation"
-    $entrees = (bcdedit /enum firmware) -join "`n"
-    if ($entrees -match 'Ubuntu \(Wubi\)') {
-        bcdedit /enum firmware | Select-String -Pattern 'identifier|description' | Out-Null
-        $id = (bcdedit /enum firmware | Select-String -Context 0,10 'Ubuntu \(Wubi\)' | Out-String)
-        Souci "entree de demarrage a retirer manuellement si elle subsiste :"
-        Souci "  bcdedit /enum firmware   puis   bcdedit /delete {identifiant}"
+    $entrees = @(EntreesWubi)
+    foreach ($id in $entrees) {
+        bcdedit /delete $id /f | Out-Null
+        if ($LASTEXITCODE -eq 0) { Info "entree de demarrage supprimee : $id" }
+        else { Souci "suppression impossible, a faire a la main : bcdedit /delete $id /f" }
     }
+    if ($entrees.Count -eq 0) { Info "aucune entree Ubuntu (Wubi) dans le menu de demarrage" }
     mountvol S: /s 2>$null
     if (Test-Path 'S:\EFI\wubildr') { Remove-Item 'S:\EFI\wubildr' -Recurse -Force; Info "wubildr retire de l'ESP" }
     mountvol S: /d 2>$null
@@ -197,12 +208,25 @@ try {
 }
 
 Etape "Entree dans le menu de demarrage"
-$sortie = bcdedit /copy '{bootmgr}' /d 'Ubuntu (Wubi)' 2>&1 | Out-String
-if ($sortie -match '\{[0-9a-fA-F-]{36}\}') {
-    $id = $Matches[0]
+$entrees = @(EntreesWubi)
+if ($entrees.Count -gt 1) {
+    foreach ($double in $entrees[1..($entrees.Count - 1)]) {
+        bcdedit /delete $double /f | Out-Null
+        Info "entree en double supprimee : $double"
+    }
+}
+if ($entrees.Count -ge 1) {
+    $id = $entrees[0]
+    Info "entree existante reutilisee : $id"
+} else {
+    $sortie = bcdedit /copy '{bootmgr}' /d 'Ubuntu (Wubi)' 2>&1 | Out-String
+    if ($sortie -match '\{[0-9a-fA-F-]{36}\}') { $id = $Matches[0]; Info "entree creee : $id" }
+    else { $id = $null }
+}
+if ($id) {
     bcdedit /set $id path \EFI\wubildr\grubx64.efi | Out-Null
     bcdedit /set '{fwbootmgr}' displayorder $id /addlast | Out-Null
-    Info "entree creee : $id (placee EN DERNIER : Windows reste le systeme par defaut)"
+    Info "placee EN DERNIER : Windows reste le systeme par defaut"
 } else {
     Souci "creation automatique impossible. A faire a la main :"
     Souci "  bcdedit /copy {bootmgr} /d `"Ubuntu (Wubi)`""
