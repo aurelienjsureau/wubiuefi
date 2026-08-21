@@ -48,4 +48,5 @@ EOF
 
 echo "NTFS montée sur $MNT_HOST (PARTUUID=$PARTUUID)"
 echo "ESP  montée sur $MNT_ESP"
-findmnt -n "$MNT_HOST" "$MNT_ESP"
+findmnt -n "$MNT_HOST" || true
+findmnt -n "$MNT_ESP" || true
