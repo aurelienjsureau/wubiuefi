@@ -39,6 +39,35 @@ jobs:
           path: /tmp/grubx64.efi
           if-no-files-found: error
 
+  # Le pilote NTFS de grub a été durci entre 2.06 et 2.12 (corrections de
+  # sécurité sur l'analyse des enregistrements MFT). Une partition NTFS que
+  # 2.12 refuse et que 2.06 lit désigne le coupable sans discussion possible.
+  # Cette image-ci n'est qu'une pièce de comparaison : à essayer quand la
+  # première ne lit toujours aucune NTFS.
+  wubildr-grub206:
+    runs-on: ubuntu-24.04
+    container: ubuntu:22.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Dépendances
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends grub-efi-amd64-bin grub-common git ca-certificates
+
+      - name: Construction
+        run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          bash tools/wubi/build-wubildr.sh /tmp/grubx64.efi
+          ls -l /tmp/grubx64.efi
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wubildr-grub206
+          path: /tmp/grubx64.efi
+          if-no-files-found: error
+
   exe:
     needs: wubildr
     runs-on: windows-latest

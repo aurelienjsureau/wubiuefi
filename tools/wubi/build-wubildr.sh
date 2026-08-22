@@ -25,7 +25,11 @@ mkdir -p "$(dirname "$OUT")"
 # embarqué (-m), cette fois avec le parseur complet.
 TMP=$(mktemp -d)
 trap 'rm -rf "$TMP"' EXIT
-STAMP="${WUBILDR_STAMP:-$(git -C "$ICI" describe --always --dirty 2>/dev/null || echo inconnu)-$(date -u +%Y%m%d%H%M)}"
+# La version de grub fait partie de l'identité de l'image : le pilote NTFS a
+# changé entre les versions, et c'est lui qu'on soupçonne. Elle doit donc être
+# lisible à l'écran, sans avoir à retrouver comment l'image a été construite.
+GRUBVER=$(grub-mkimage --version | grep -o '[0-9][0-9.]*' | head -1)
+STAMP="${WUBILDR_STAMP:-$(git -C "$ICI" describe --always --dirty 2>/dev/null || echo inconnu)-$(date -u +%Y%m%d%H%M)}-grub$GRUBVER"
 sed "s/@@STAMP@@/$STAMP/" "$CFG" > "$TMP/wubildr.cfg"
 
 # Une faute de syntaxe dans cette configuration ne se verrait qu'au démarrage,
@@ -38,12 +42,14 @@ fi
 printf 'normal (memdisk)/wubildr.cfg\n' > "$TMP/bootstrap.cfg"
 
 # ntfs et ntfscomp : lecture de la partition Windows.
+# exfat          : disques externes formatés par Windows, et repli quand le
+#                  pilote NTFS de grub refuse la partition interne.
 # loopback + ext2 : ouverture de root.disk et lecture de l'ext4 dedans.
 # iso9660        : ouverture de l'ISO pendant la phase d'installation.
 # search_fs_file : recherche par fichier, seule fiable sur NTFS.
 grub-mkimage -O x86_64-efi -o "$OUT" -c "$TMP/bootstrap.cfg" -m "$TMP/wubildr.tar" \
 	part_gpt part_msdos \
-	ntfs ntfscomp fat ext2 iso9660 loopback \
+	ntfs ntfscomp exfat fat ext2 iso9660 loopback \
 	search search_fs_file search_fs_uuid search_label \
 	normal linux configfile echo test true sleep \
 	memdisk tar \
